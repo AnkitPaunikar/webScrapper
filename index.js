@@ -1,6 +1,7 @@
 const puppeteer = require("puppeteer");
 const xlsx = require("xlsx");
 const randomUseragent = require("random-useragent");
+const { exec } = require("child_process");
 
 // Roles and filters
 const roles = [
@@ -152,9 +153,22 @@ const scrapeJobs = async () => {
   xlsx.utils.book_append_sheet(wb, ws, "Jobs");
 
   // Write to Excel file
-  xlsx.writeFile(wb, "jobs.xlsx");
+  const filePath = "jobs.xlsx";
+  xlsx.writeFile(wb, filePath);
 
+  console.log("Excel file generated: jobs.xlsx");
+
+  // Close the browser
   await browser.close();
+
+  // Call sendEmail.js to send the Excel file
+  exec("node sendEmail.js", (err, stdout, stderr) => {
+    if (err) {
+      console.error(`Error executing sendEmail.js: ${err}`);
+      return;
+    }
+    console.log(`Email sent successfully: ${stdout}`);
+  });
 };
 
 // Function to scroll to the bottom of the page
