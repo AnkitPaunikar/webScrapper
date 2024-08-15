@@ -24,15 +24,16 @@ jobs:
 
       - name: Install Chromium
         run: |
-          wget https://github.com/adieuadieu/browser/releases/download/v3.0.0/chrome-linux64.zip
-          unzip chrome-linux64.zip
-          mv chrome-linux64 /usr/local/chrome
+          sudo apt-get update
+          sudo apt-get install -y wget unzip
+          wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt-get install -y ./google-chrome-stable_current_amd64.deb
 
       - name: Run the script
         run: |
           node index.js
         env:
-          CHROME_EXECUTABLE_PATH: /usr/local/chrome/chrome
+          CHROME_EXECUTABLE_PATH: /usr/bin/google-chrome-stable
 
       - name: Send Email
         run: node sendEmail.js
