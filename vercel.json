@@ -13,8 +13,8 @@
     }
   ],
   "env": {
-    "EMAIL_USER": "@email_user",
-    "EMAIL_PASS": "@email_pass",
-    "RECIPIENT_EMAIL": "@recipient_email"
+    "EMAIL_USER": "@EMAIL_USER",
+    "EMAIL_PASS": "@EMAIL_PASS",
+    "RECIPIENT_EMAIL": "@RECIPIENT_EMAIL"
   }
 }
