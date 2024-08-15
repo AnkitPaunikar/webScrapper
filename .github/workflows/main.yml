@@ -17,7 +17,10 @@ jobs:
         with:
           node-version: "20"
 
-      - run: npm install
+      - name: Install dependencies
+        run: |
+          npm install
+          npm install puppeteer # Ensure Puppeteer and its Chromium binary are installed
 
       - name: Run the script
         run: node index.js
