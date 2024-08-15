@@ -16,6 +16,7 @@ const freshness = "7"; // Last 7 days
 const scrapeJobs = async () => {
   const browser = await puppeteer.launch({
     executablePath: process.env.CHROME_EXECUTABLE_PATH,
+    // executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe",
     headless: true,
     args: ["--disable-notifications"],
   });
@@ -62,12 +63,23 @@ const scrapeJobs = async () => {
         await autoScroll(page);
 
         // Wait for job elements to be present
-        await page.waitForSelector(".srp-jobtuple-wrapper", { timeout: 10000 });
+        await page.waitForSelector(".srp-jobtuple-wrapper", { timeout: 20000 });
+
+        // Scroll to bottom to load all jobs
+        await autoScroll(page);
+
+        // Additional wait time to ensure full page load
+        await page.evaluate(
+          () => new Promise((resolve) => setTimeout(resolve, 6000))
+        );
+        // Wait an additional 5 seconds
+        // await page.screenshot({ path: "page.png", fullPage: true });
 
         const jobs = await page.evaluate(() => {
           const jobElements = document.querySelectorAll(
             ".srp-jobtuple-wrapper"
           );
+          console.log(`Found ${jobElements.length} job elements`); // Log the count of job elements
 
           return Array.from(jobElements).map((job) => {
             return {
@@ -88,11 +100,27 @@ const scrapeJobs = async () => {
         });
 
         // Filter jobs based on experience (3 years) and location (Pune)
-        const filteredJobs = jobs.filter(
-          (job) =>
-            job.experience.includes("3") &&
-            job.location.toLowerCase().includes(location)
-        );
+        const filteredJobs = jobs.filter((job) => {
+          const experience = job.experience.trim().toLowerCase();
+          let minExperience = 0;
+          let maxExperience = 0;
+
+          // Extract the lower and upper limits of the experience range
+          if (experience.includes("-")) {
+            const parts = experience.split("-");
+            minExperience = parseInt(parts[0], 10);
+            maxExperience = parseInt(parts[1], 10);
+          } else if (experience.includes("year")) {
+            minExperience = maxExperience = parseInt(experience, 10);
+          }
+
+          // Check if the range includes 3 years
+          const includesThreeYears = minExperience <= 3 && maxExperience >= 3;
+
+          return (
+            includesThreeYears && job.location.toLowerCase().includes(location)
+          );
+        });
 
         allJobs = [...allJobs, ...filteredJobs];
 
