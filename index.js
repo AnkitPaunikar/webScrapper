@@ -15,6 +15,7 @@ const freshness = "7"; // Last 7 days
 
 const scrapeJobs = async () => {
   const browser = await puppeteer.launch({
+    executablePath: "/path/to/your/chrome",
     headless: false,
     args: ["--disable-notifications"],
   });
