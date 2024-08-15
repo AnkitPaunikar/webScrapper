@@ -18,7 +18,7 @@ async function sendEmail() {
     attachments: [
       {
         filename: "jobs.xlsx",
-        path: path.join(__dirname, "jobs.xlsx"), // Adjust path as necessary
+        path: path.join(__dirname, "jobs.xlsx"), // Adjust the path if necessary
       },
     ],
   });
