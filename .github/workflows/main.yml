@@ -23,7 +23,7 @@ jobs:
       - run: npm install
 
       - name: Run the script
-        run: node selectors.js
+        run: node index.js
 
       - name: Send Email
         run: node sendEmail.js
