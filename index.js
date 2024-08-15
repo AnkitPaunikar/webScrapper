@@ -1,4 +1,4 @@
-const puppeteer = require("puppeteer");
+const puppeteer = require("puppeteer-core");
 const xlsx = require("xlsx");
 const randomUseragent = require("random-useragent");
 const { exec } = require("child_process");
@@ -16,7 +16,7 @@ const freshness = "7"; // Last 7 days
 const scrapeJobs = async () => {
   const browser = await puppeteer.launch({
     executablePath: process.env.CHROME_EXECUTABLE_PATH,
-    headless: false,
+    headless: true,
     args: ["--disable-notifications"],
   });
   const page = await browser.newPage();
