@@ -49,35 +49,36 @@ const scrapeJobsForRole = async (role, timeout) => {
   const startTime = Date.now();
 
   while (hasNextPage) {
-    // Check if timeout is reached
     if (Date.now() - startTime > timeout) {
       console.log("Time limit reached. Stopping scraping.");
       hasNextPage = false;
       break;
     }
 
-    let userAgent = randomUseragent.getRandom(
-      (ua) => ua.deviceType === "desktop"
-    );
-    if (typeof userAgent !== "string") {
-      userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
-    }
-    await page.setUserAgent(userAgent);
+    try {
+      let userAgent = randomUseragent.getRandom(
+        (ua) => ua.deviceType === "desktop"
+      );
+      if (typeof userAgent !== "string") {
+        userAgent =
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
+      }
+      await page.setUserAgent(userAgent);
 
-    const url =
-      currentPageNumber === 1
-        ? baseUrl
-        : `${baseUrl}&page=${currentPageNumber}`;
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
+      const url =
+        currentPageNumber === 1
+          ? baseUrl
+          : `${baseUrl}&page=${currentPageNumber}`;
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
 
-    await autoScroll(page);
+      await autoScroll(page);
 
-    await page.waitForSelector(".srp-jobtuple-wrapper", { timeout: 10000 });
+      await page.waitForSelector(".srp-jobtuple-wrapper", { timeout: 10000 });
 
-    const jobs = await page.evaluate(() => {
-      return Array.from(document.querySelectorAll(".srp-jobtuple-wrapper")).map(
-        (job) => ({
+      const jobs = await page.evaluate(() => {
+        return Array.from(
+          document.querySelectorAll(".srp-jobtuple-wrapper")
+        ).map((job) => ({
           title: job.querySelector(".title")?.innerText.trim() || "No title",
           company:
             job.querySelector(".comp-name")?.innerText.trim() || "No company",
@@ -86,61 +87,64 @@ const scrapeJobsForRole = async (role, timeout) => {
           experience:
             job.querySelector(".exp-wrap")?.innerText.trim() || "No experience",
           link: job.querySelector("a.title")?.href || "No link",
-        })
+        }));
+      });
+
+      const filteredJobs = jobs.filter((job) => {
+        const experience = job.experience.trim().toLowerCase();
+        let minExperience = 0;
+        let maxExperience = 0;
+        if (experience.includes("-")) {
+          const parts = experience.split("-");
+          minExperience = parseInt(parts[0], 10);
+          maxExperience = parseInt(parts[1], 10);
+        } else if (experience.includes("year")) {
+          minExperience = maxExperience = parseInt(experience, 10);
+        }
+        const includesThreeYears = minExperience <= 3 && maxExperience >= 3;
+        return (
+          includesThreeYears && job.location.toLowerCase().includes(location)
+        );
+      });
+
+      allJobs = [...allJobs, ...filteredJobs];
+
+      console.log(
+        `Jobs collected from Page ${currentPageNumber} for ${role}: ${filteredJobs.length}`
       );
-    });
 
-    const filteredJobs = jobs.filter((job) => {
-      const experience = job.experience.trim().toLowerCase();
-      let minExperience = 0;
-      let maxExperience = 0;
-      if (experience.includes("-")) {
-        const parts = experience.split("-");
-        minExperience = parseInt(parts[0], 10);
-        maxExperience = parseInt(parts[1], 10);
-      } else if (experience.includes("year")) {
-        minExperience = maxExperience = parseInt(experience, 10);
-      }
-      const includesThreeYears = minExperience <= 3 && maxExperience >= 3;
-      return (
-        includesThreeYears && job.location.toLowerCase().includes(location)
-      );
-    });
+      await autoScroll(page);
 
-    allJobs = [...allJobs, ...filteredJobs];
+      const nextButtonSelector =
+        'div[class="styles_pagination-cont__sWhS6"] > div > a:nth-of-type(2)';
+      try {
+        await page.waitForSelector(nextButtonSelector, { timeout: 10000 });
+        const nextButton = await page.$(nextButtonSelector);
 
-    console.log(
-      `Jobs collected from Page ${currentPageNumber} for ${role}: ${filteredJobs.length}`
-    );
-
-    await autoScroll(page);
-
-    const nextButtonSelector =
-      'div[class="styles_pagination-cont__sWhS6"] > div > a:nth-of-type(2)';
-    try {
-      await page.waitForSelector(nextButtonSelector, { timeout: 10000 });
-      const nextButton = await page.$(nextButtonSelector);
-
-      if (nextButton) {
-        const box = await nextButton.boundingBox();
-        if (box) {
-          await page.evaluate(
-            (selector) => document.querySelector(selector).click(),
-            nextButtonSelector
-          );
-          await page.waitForNavigation({
-            waitUntil: "domcontentloaded",
-            timeout: 15000,
-          });
-          currentPageNumber += 1;
+        if (nextButton) {
+          const box = await nextButton.boundingBox();
+          if (box) {
+            await page.evaluate(
+              (selector) => document.querySelector(selector).click(),
+              nextButtonSelector
+            );
+            await page.waitForNavigation({
+              waitUntil: "domcontentloaded",
+              timeout: 15000,
+            });
+            currentPageNumber += 1;
+          } else {
+            hasNextPage = false;
+          }
         } else {
           hasNextPage = false;
         }
-      } else {
+      } catch (error) {
+        console.error(`Error waiting for selector: ${error}`);
         hasNextPage = false;
       }
     } catch (error) {
-      console.error(`Error waiting for selector: ${error}`);
+      console.error(`Error during scraping: ${error}`);
       hasNextPage = false;
     }
   }
@@ -150,7 +154,7 @@ const scrapeJobsForRole = async (role, timeout) => {
 };
 
 const scrapeAllJobs = async () => {
-  const timeLimit = 1 * 60 * 60 * 1000; // 1 hour in milliseconds
+  const timeLimit = 1 * 60 * 1000; // 1 hour in milliseconds
   const timeoutPromise = new Promise((_, reject) =>
     setTimeout(() => reject(new Error("Time limit exceeded")), timeLimit)
   );
