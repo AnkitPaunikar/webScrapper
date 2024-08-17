@@ -27,7 +27,13 @@ jobs:
       - name: Install Chromium
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget unzip chromium-browser
+          sudo apt-get install -y wget unzip
+          wget https://github.com/adoptopenjdk/openjdk11-binaries/releases/download/jdk-11.0.10%2B9/OpenJDK11U-jdk_x64_linux_hotspot_11.0.10_9.tar.gz
+          tar -xvf OpenJDK11U-jdk_x64_linux_hotspot_11.0.10_9.tar.gz
+          sudo mv jdk-11.0.10+9 /usr/lib/jvm/
+          sudo update-alternatives --install /usr/bin/java java /usr/lib/jvm/jdk-11.0.10+9/bin/java 1
+          sudo update-alternatives --install /usr/bin/javac javac /usr/lib/jvm/jdk-11.0.10+9/bin/javac 1
+          sudo apt-get install -y chromium-browser
 
       - name: Run the script
         run: |
@@ -41,3 +47,7 @@ jobs:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+
+      - name: Clean up
+        run: |
+          rm -f jobs.xlsx

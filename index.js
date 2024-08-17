@@ -152,12 +152,13 @@ const scrapeAllJobs = async () => {
     setTimeout(() => reject(new Error("Time limit exceeded")), timeLimit)
   );
 
+  let allJobs = [];
   try {
     const allJobsPromise = Promise.all(
       roles.map((role) => limit(() => scrapeJobsForRole(role, timeLimit)))
     );
 
-    const allJobs = await Promise.race([allJobsPromise, timeoutPromise]);
+    allJobs = await Promise.race([allJobsPromise, timeoutPromise]);
 
     const flattenedJobs = allJobs.flat();
 
@@ -169,7 +170,13 @@ const scrapeAllJobs = async () => {
     xlsx.writeFile(wb, filePath);
 
     console.log("Excel file generated: jobs.xlsx");
-
+  } catch (error) {
+    if (error.message === "Time limit exceeded") {
+      console.log("Time limit exceeded. Returning whatever jobs are scraped.");
+    } else {
+      console.error("Error during parallel scraping:", error);
+    }
+  } finally {
     exec("node sendEmail.js", (err, stdout, stderr) => {
       if (err) {
         console.error(`Error executing sendEmail.js: ${err}`);
@@ -177,12 +184,6 @@ const scrapeAllJobs = async () => {
       }
       console.log(`Email sent successfully: ${stdout}`);
     });
-  } catch (error) {
-    if (error.message === "Time limit exceeded") {
-      console.log("Time limit exceeded. Returning whatever jobs are scraped.");
-    } else {
-      console.error("Error during parallel scraping:", error);
-    }
   }
 };
 
@@ -208,12 +209,6 @@ async function autoScroll(page) {
   } catch (error) {
     console.error("Error during scrolling:", error);
   }
-}
-
-function delay(time) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, time);
-  });
 }
 
 scrapeAllJobs();
