@@ -1,9 +1,9 @@
-const puppeteer = require("puppeteer-core");
-const xlsx = require("xlsx");
-const randomUseragent = require("random-useragent");
-const { exec } = require("child_process");
+import puppeteer from "puppeteer-core";
+import xlsx from "xlsx";
+import randomUseragent from "random-useragent";
+import { exec } from "child_process";
+import pLimit from "p-limit";
 
-// Roles and filters
 const roles = [
   "react-developer",
   "javascript-developer",
@@ -12,201 +12,187 @@ const roles = [
 ];
 const location = "pune";
 const freshness = "7"; // Last 7 days
+const executablePath =
+  process.env.CHROME_EXECUTABLE_PATH ||
+  "C:/Program Files/Google/Chrome/Application/chrome.exe";
 
-const scrapeJobs = async () => {
+// Limit concurrency to 5 simultaneous pages
+const limit = pLimit(5);
+
+const scrapeJobsForRole = async (role, timeout) => {
   const browser = await puppeteer.launch({
-    executablePath: process.env.CHROME_EXECUTABLE_PATH,
-    // executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe",
+    executablePath: executablePath,
     headless: true,
-    args: ["--disable-notifications"],
+    args: [
+      "--disable-notifications",
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-gpu",
+      "--disable-images",
+      "--disable-dev-shm-usage",
+      "--no-zygote",
+    ],
   });
   const page = await browser.newPage();
-
-  // Set a desktop viewport size
   await page.setViewport({ width: 1366, height: 768 });
-
-  // Set permissions to deny location access
   const context = browser.defaultBrowserContext();
   await context.overridePermissions("https://www.naukri.com", ["geolocation"]);
 
   let allJobs = [];
+  let hasNextPage = true;
+  let currentPageNumber = 1;
+  const baseUrl = `https://www.naukri.com/${role}-jobs-in-${location}?fjb=${freshness}`;
 
-  for (const role of roles) {
-    let hasNextPage = true;
-    let currentPageNumber = 1;
+  const startTime = Date.now();
 
-    // Construct the base URL with location and freshness filters
-    const baseUrl = `https://www.naukri.com/${role}-jobs-in-${location}?fjb=${freshness}`;
+  while (hasNextPage) {
+    // Check if timeout is reached
+    if (Date.now() - startTime > timeout) {
+      console.log("Time limit reached. Stopping scraping.");
+      hasNextPage = false;
+      break;
+    }
 
+    let userAgent = randomUseragent.getRandom(
+      (ua) => ua.deviceType === "desktop"
+    );
+    if (typeof userAgent !== "string") {
+      userAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
+    }
+    await page.setUserAgent(userAgent);
+
+    const url =
+      currentPageNumber === 1
+        ? baseUrl
+        : `${baseUrl}&page=${currentPageNumber}`;
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
+
+    await autoScroll(page);
+
+    await page.waitForSelector(".srp-jobtuple-wrapper", { timeout: 10000 });
+
+    const jobs = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll(".srp-jobtuple-wrapper")).map(
+        (job) => ({
+          title: job.querySelector(".title")?.innerText.trim() || "No title",
+          company:
+            job.querySelector(".comp-name")?.innerText.trim() || "No company",
+          location:
+            job.querySelector(".loc-wrap")?.innerText.trim() || "No location",
+          experience:
+            job.querySelector(".exp-wrap")?.innerText.trim() || "No experience",
+          link: job.querySelector("a.title")?.href || "No link",
+        })
+      );
+    });
+
+    const filteredJobs = jobs.filter((job) => {
+      const experience = job.experience.trim().toLowerCase();
+      let minExperience = 0;
+      let maxExperience = 0;
+      if (experience.includes("-")) {
+        const parts = experience.split("-");
+        minExperience = parseInt(parts[0], 10);
+        maxExperience = parseInt(parts[1], 10);
+      } else if (experience.includes("year")) {
+        minExperience = maxExperience = parseInt(experience, 10);
+      }
+      const includesThreeYears = minExperience <= 3 && maxExperience >= 3;
+      return (
+        includesThreeYears && job.location.toLowerCase().includes(location)
+      );
+    });
+
+    allJobs = [...allJobs, ...filteredJobs];
+
+    console.log(
+      `Jobs collected from Page ${currentPageNumber} for ${role}: ${filteredJobs.length}`
+    );
+
+    await autoScroll(page);
+
+    const nextButtonSelector =
+      'div[class="styles_pagination-cont__sWhS6"] > div > a:nth-of-type(2)';
     try {
-      while (hasNextPage) {
-        // Rotate User-Agent for every page request
-        let userAgent = randomUseragent.getRandom(
-          (ua) => ua.deviceType === "desktop"
-        );
+      await page.waitForSelector(nextButtonSelector, { timeout: 10000 });
+      const nextButton = await page.$(nextButtonSelector);
 
-        // Ensure userAgent is a string
-        if (typeof userAgent !== "string") {
-          userAgent =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
-        }
-
-        await page.setUserAgent(userAgent);
-        // Construct URL for current page
-        const url =
-          currentPageNumber === 1
-            ? baseUrl
-            : `${baseUrl}&page=${currentPageNumber}`;
-        await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
-
-        // Scroll to bottom to load all jobs
-        await autoScroll(page);
-
-        // Wait for job elements to be present
-        await page.waitForSelector(".srp-jobtuple-wrapper", { timeout: 20000 });
-
-        // Scroll to bottom to load all jobs
-        await autoScroll(page);
-
-        // Additional wait time to ensure full page load
-        await page.evaluate(
-          () => new Promise((resolve) => setTimeout(resolve, 6000))
-        );
-        // Wait an additional 5 seconds
-        // await page.screenshot({ path: "page.png", fullPage: true });
-
-        const jobs = await page.evaluate(() => {
-          const jobElements = document.querySelectorAll(
-            ".srp-jobtuple-wrapper"
+      if (nextButton) {
+        const box = await nextButton.boundingBox();
+        if (box) {
+          await page.evaluate(
+            (selector) => document.querySelector(selector).click(),
+            nextButtonSelector
           );
-          console.log(`Found ${jobElements.length} job elements`); // Log the count of job elements
-
-          return Array.from(jobElements).map((job) => {
-            return {
-              title:
-                job.querySelector(".title")?.innerText.trim() || "No title",
-              company:
-                job.querySelector(".comp-name")?.innerText.trim() ||
-                "No company",
-              location:
-                job.querySelector(".loc-wrap")?.innerText.trim() ||
-                "No location",
-              experience:
-                job.querySelector(".exp-wrap")?.innerText.trim() ||
-                "No experience",
-              link: job.querySelector("a.title")?.href || "No link",
-            };
+          await page.waitForNavigation({
+            waitUntil: "domcontentloaded",
+            timeout: 15000,
           });
-        });
-
-        // Filter jobs based on experience (3 years) and location (Pune)
-        const filteredJobs = jobs.filter((job) => {
-          const experience = job.experience.trim().toLowerCase();
-          let minExperience = 0;
-          let maxExperience = 0;
-
-          // Extract the lower and upper limits of the experience range
-          if (experience.includes("-")) {
-            const parts = experience.split("-");
-            minExperience = parseInt(parts[0], 10);
-            maxExperience = parseInt(parts[1], 10);
-          } else if (experience.includes("year")) {
-            minExperience = maxExperience = parseInt(experience, 10);
-          }
-
-          // Check if the range includes 3 years
-          const includesThreeYears = minExperience <= 3 && maxExperience >= 3;
-
-          return (
-            includesThreeYears && job.location.toLowerCase().includes(location)
-          );
-        });
-
-        allJobs = [...allJobs, ...filteredJobs];
-
-        console.log(
-          `Jobs collected from Page ${currentPageNumber} for ${role}: ${filteredJobs.length}`
-        );
-
-        // Introduce random delay to mimic human behavior
-        await delay(Math.random() * 3000 + 2000);
-
-        // Scroll to bottom before clicking next button
-        await autoScroll(page);
-
-        // Check if there is a "Next" button and click it
-        const nextButtonSelector =
-          'div[class="styles_pagination-cont__sWhS6"] > div > a:nth-of-type(2)';
-        try {
-          await page.waitForSelector(nextButtonSelector, { timeout: 60000 });
-          const nextButton = await page.$(nextButtonSelector);
-
-          if (nextButton) {
-            const box = await nextButton.boundingBox();
-
-            if (box) {
-              await new Promise((resolve) => setTimeout(resolve, 1000)); // Adding a small delay
-
-              await page.evaluate((selector) => {
-                document.querySelector(selector).click();
-              }, nextButtonSelector);
-
-              await page.waitForNavigation({
-                waitUntil: "networkidle2",
-                timeout: 60000,
-              });
-              await page.waitForSelector(".srp-jobtuple-wrapper", {
-                timeout: 60000,
-              });
-              // Next page increment
-              currentPageNumber += 1;
-            } else {
-              hasNextPage = false;
-            }
-          } else {
-            hasNextPage = false;
-          }
-        } catch (error) {
-          console.error(`Error waiting for selector: ${error}`);
+          currentPageNumber += 1;
+        } else {
           hasNextPage = false;
         }
+      } else {
+        hasNextPage = false;
       }
     } catch (error) {
-      console.error(`Error fetching data for ${role}:`, error);
+      console.error(`Error waiting for selector: ${error}`);
+      hasNextPage = false;
     }
   }
 
-  // Convert job data to Excel format
-  const ws = xlsx.utils.json_to_sheet(allJobs);
-  const wb = xlsx.utils.book_new();
-  xlsx.utils.book_append_sheet(wb, ws, "Jobs");
-
-  // Write to Excel file
-  const filePath = "jobs.xlsx";
-  xlsx.writeFile(wb, filePath);
-
-  console.log("Excel file generated: jobs.xlsx");
-
-  // Close the browser
   await browser.close();
-
-  // Call sendEmail.js to send the Excel file
-  exec("node sendEmail.js", (err, stdout, stderr) => {
-    if (err) {
-      console.error(`Error executing sendEmail.js: ${err}`);
-      return;
-    }
-    console.log(`Email sent successfully: ${stdout}`);
-  });
+  return allJobs;
 };
 
-// Function to scroll to the bottom of the page
+const scrapeAllJobs = async () => {
+  const timeLimit = 1 * 60 * 1000; // 350 minutes in milliseconds
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error("Time limit exceeded")), timeLimit)
+  );
+
+  try {
+    const allJobsPromise = Promise.all(
+      roles.map((role) => limit(() => scrapeJobsForRole(role, timeLimit)))
+    );
+
+    const allJobs = await Promise.race([allJobsPromise, timeoutPromise]);
+
+    const flattenedJobs = allJobs.flat();
+
+    const ws = xlsx.utils.json_to_sheet(flattenedJobs);
+    const wb = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(wb, ws, "Jobs");
+
+    const filePath = "jobs.xlsx";
+    xlsx.writeFile(wb, filePath);
+
+    console.log("Excel file generated: jobs.xlsx");
+
+    exec("node sendEmail.js", (err, stdout, stderr) => {
+      if (err) {
+        console.error(`Error executing sendEmail.js: ${err}`);
+        return;
+      }
+      console.log(`Email sent successfully: ${stdout}`);
+    });
+  } catch (error) {
+    if (error.message === "Time limit exceeded") {
+      console.log("Time limit exceeded. Returning whatever jobs are scraped.");
+    } else {
+      console.error("Error during parallel scraping:", error);
+    }
+  }
+};
+
 async function autoScroll(page) {
   try {
     await page.evaluate(async () => {
       await new Promise((resolve) => {
         let totalHeight = 0;
-        const distance = 100;
+        const distance = 300; // Increased distance
+        const interval = 50; // Reduced interval
         const timer = setInterval(() => {
           const scrollHeight = document.body.scrollHeight;
           window.scrollBy(0, distance);
@@ -215,22 +201,19 @@ async function autoScroll(page) {
             clearInterval(timer);
             resolve();
           }
-        }, 100);
+        }, interval);
       });
     });
-
-    // Wait a bit to ensure the page has finished loading
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await new Promise((resolve) => setTimeout(resolve, 2000)); // Shorter delay
   } catch (error) {
     console.error("Error during scrolling:", error);
   }
 }
 
-// Function to introduce delay
 function delay(time) {
   return new Promise((resolve) => {
     setTimeout(resolve, time);
   });
 }
 
-scrapeJobs();
+scrapeAllJobs();
