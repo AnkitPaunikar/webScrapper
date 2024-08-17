@@ -15,9 +15,7 @@ const roles = [
 ];
 const location = "pune";
 const freshness = "7"; // Last 7 days
-const executablePath =
-  process.env.CHROME_EXECUTABLE_PATH ||
-  "C:/Program Files/Google/Chrome/Application/chrome.exe";
+const executablePath = process.env.CHROME_EXECUTABLE_PATH;
 
 // Limit concurrency to 5 simultaneous pages
 const limit = pLimit(5);
@@ -73,7 +71,7 @@ const scrapeJobsForRole = async (role, timeout) => {
 
       await autoScroll(page);
 
-      await page.waitForSelector(".srp-jobtuple-wrapper", { timeout: 10000 });
+      await page.waitForSelector(".srp-jobtuple-wrapper", { timeout: 20000 });
 
       const jobs = await page.evaluate(() => {
         return Array.from(
@@ -109,16 +107,12 @@ const scrapeJobsForRole = async (role, timeout) => {
 
       allJobs = [...allJobs, ...filteredJobs];
 
-      console.log(
-        `Jobs collected from Page ${currentPageNumber} for ${role}: ${filteredJobs.length}`
-      );
-
       await autoScroll(page);
 
       const nextButtonSelector =
         'div[class="styles_pagination-cont__sWhS6"] > div > a:nth-of-type(2)';
       try {
-        await page.waitForSelector(nextButtonSelector, { timeout: 10000 });
+        await page.waitForSelector(nextButtonSelector, { timeout: 15000 });
         const nextButton = await page.$(nextButtonSelector);
 
         if (nextButton) {
@@ -154,7 +148,7 @@ const scrapeJobsForRole = async (role, timeout) => {
 };
 
 const scrapeAllJobs = async () => {
-  const timeLimit = 1 * 60 * 1000; // 1 hour in milliseconds
+  const timeLimit = 320 * 60 * 1000;
   const timeoutPromise = new Promise((_, reject) =>
     setTimeout(() => reject(new Error("Time limit exceeded")), timeLimit)
   );
@@ -175,8 +169,6 @@ const scrapeAllJobs = async () => {
 
     const filePath = "jobs.xlsx";
     xlsx.writeFile(wb, filePath);
-
-    console.log("Excel file generated: jobs.xlsx");
   } catch (error) {
     if (error.message === "Time limit exceeded") {
       console.log("Time limit exceeded. Returning whatever jobs are scraped.");
@@ -202,8 +194,8 @@ async function autoScroll(page) {
     await page.evaluate(async () => {
       await new Promise((resolve) => {
         let totalHeight = 0;
-        const distance = 300; // Increased distance
-        const interval = 50; // Reduced interval
+        const distance = 250; // Increased distance
+        const interval = 70; // Reduced interval
         const timer = setInterval(() => {
           const scrollHeight = document.body.scrollHeight;
           window.scrollBy(0, distance);
@@ -215,7 +207,7 @@ async function autoScroll(page) {
         }, interval);
       });
     });
-    await new Promise((resolve) => setTimeout(resolve, 2000)); // Shorter delay
+    await new Promise((resolve) => setTimeout(resolve, 2500));
   } catch (error) {
     console.error("Error during scrolling:", error);
   }
