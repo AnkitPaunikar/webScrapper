@@ -1,8 +1,11 @@
 import puppeteer from "puppeteer-core";
 import xlsx from "xlsx";
 import randomUseragent from "random-useragent";
-import { exec } from "child_process";
+import { exec as execCb } from "child_process";
+import { promisify } from "util";
 import pLimit from "p-limit";
+
+const exec = promisify(execCb);
 
 const roles = [
   "react-developer",
@@ -147,7 +150,7 @@ const scrapeJobsForRole = async (role, timeout) => {
 };
 
 const scrapeAllJobs = async () => {
-  const timeLimit = 1 * 60 * 1000; // 350 minutes in milliseconds
+  const timeLimit = 1 * 60 * 60 * 1000; // 1 hour in milliseconds
   const timeoutPromise = new Promise((_, reject) =>
     setTimeout(() => reject(new Error("Time limit exceeded")), timeLimit)
   );
@@ -177,13 +180,16 @@ const scrapeAllJobs = async () => {
       console.error("Error during parallel scraping:", error);
     }
   } finally {
-    exec("node sendEmail.js", (err, stdout, stderr) => {
-      if (err) {
-        console.error(`Error executing sendEmail.js: ${err}`);
-        return;
+    try {
+      const { stdout, stderr } = await exec("node sendEmail.js");
+      if (stderr) {
+        console.error(`Error executing sendEmail.js: ${stderr}`);
+      } else {
+        console.log(`Email sent successfully: ${stdout}`);
       }
-      console.log(`Email sent successfully: ${stdout}`);
-    });
+    } catch (err) {
+      console.error(`Error executing sendEmail.js: ${err.message}`);
+    }
   }
 };
 
